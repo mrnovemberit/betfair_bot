@@ -1,0 +1,5 @@
+betfairlightweight>=2.18.0
+flumine>=3.0.0
+pandas>=2.0.0
+requests
+python-dotenv
