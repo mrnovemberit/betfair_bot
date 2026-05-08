@@ -29,6 +29,9 @@ dist/
 build/
 .eggs/
 
+# Claude Code
+.claude/
+
 # IDE
 .vscode/
 .idea/
