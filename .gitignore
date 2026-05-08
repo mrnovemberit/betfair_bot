@@ -1,0 +1,37 @@
+# Credenziali e certificati — NON committare mai
+.env
+*.crt
+*.key
+*.pem
+
+# Dati grezzi (file CSV pesanti — opzionale tracciare)
+data/raw/
+data/processed/
+
+# Log di trading
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
