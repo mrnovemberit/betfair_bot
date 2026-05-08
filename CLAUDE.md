@@ -88,7 +88,9 @@ betfair-football/
 │   ├── 02_fetch_goal_minutes.py # recupera minuti gol da football-data.org
 │   ├── 03_merge_dataset.py      # unisce i due dataset
 │   ├── 04_backtest_LTD.py       # logica backtest LTD
-│   └── 05_stats_report.py       # calcola metriche (win rate, Sharpe, Sortino, expectancy)
+│   ├── 05_stats_report.py       # calcola metriche (win rate, Sharpe, Sortino, expectancy)
+│   ├── results/                 # output backtest completi (CSV trade simulati, metriche finali)
+│   └── tests/                   # run di validazione su campioni ridotti, prove script
 │
 ├── bot/
 │   ├── screener.py              # filtra partite eleggibili pre-match

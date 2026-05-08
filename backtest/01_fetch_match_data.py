@@ -88,7 +88,7 @@ def main():
     combined = pd.concat(all_frames, ignore_index=True)
     out = RAW_DIR.parent / "processed" / "all_matches_raw.csv"
     combined.to_csv(out, index=False)
-    print(f"\nDataset combinato: {len(combined)} righe → {out}")
+    print(f"\nDataset combinato: {len(combined)} righe -> {out}")
 
 
 if __name__ == "__main__":

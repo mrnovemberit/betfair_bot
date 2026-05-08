@@ -4,11 +4,17 @@
 *.key
 *.pem
 
-# Dati grezzi (file CSV pesanti — opzionale tracciare)
+# Dati grezzi (file CSV pesanti)
 data/raw/
 data/processed/
 
-# Log di trading
+# Risultati backtest completi (file grandi, generati dagli script)
+backtest/results/
+
+# Output di test/validazione (piccoli campioni, generati in sviluppo)
+backtest/tests/
+
+# Log di trading live
 logs/
 
 # Python
