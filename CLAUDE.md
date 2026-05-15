@@ -104,9 +104,24 @@ betfair-football/
 
 ---
 
-## Fase attuale: BACKTEST LTD
+## Fase attuale: PAPER TRADING SETUP (aggiornato 15/05/2026)
 
-Lo stato corrente è la costruzione del backtest storico per validare la strategia LTD
+### Completato
+- **[Bot LTD costruito]** il 15/05/2026: scritti `bot/screener.py`, `bot/strategy_LTD.py`, `bot/main.py` con logica completa (green-up automatico + stop loss al 70'). Login interattivo su betfair.it funzionante con `locale="italy"`.
+- **[Backtest LTD completato]** in sessione precedente: 4.037 trade simulati su 5 campionati 2015-2024. Win rate 85%, expectancy +1.96€/trade, Sortino 201, max drawdown 2.1%. Verdetto: PROCEDI AL PAPER TRADING.
+- **[Pipeline backtest completata]**: tutti e 5 gli script (`01_fetch` → `05_stats_report`) eseguiti e funzionanti. Report e equity curve disponibili in `backtest/results/`.
+
+### Blocco attuale
+- **App Key Exchange non ottenibile** in autonomia su account betfair.it — `APP_KEY_CREATION_FAILED` sia da DICE che via API diretta. Causa: restrizione ADM Italy. **Azione richiesta**: contattare supporto Betfair Italy via chat live per sblocco Exchange API.
+- Login interattivo funzionante come workaround (nessun certificato SSL richiesto per ora).
+
+### Prossimo step
+1. Sblocco App Key via supporto Betfair Italy
+2. Testare screener con mercati reali
+3. Avviare paper trading con `python bot/main.py`
+4. Opzionale mentre si aspetta: trial Geeks Toy per valutazione visiva mercati LTD live
+
+Lo stato corrente prima del bot era la costruzione del backtest storico per validare la strategia LTD
 prima di qualsiasi live trading.
 
 ### Dataset target
@@ -169,12 +184,15 @@ Betfair richiede certificati SSL per login non-interattivo via API:
 
 ## Prossimi step immediati
 
-- [ ] Completare `01_fetch_match_data.py` — download CSV football-data.co.uk (2015–2024)
-- [ ] Completare `02_fetch_goal_minutes.py` — chiamate API football-data.org per minuti gol
-- [ ] Completare `03_merge_dataset.py` — join sui match ID/data/squadre
-- [ ] Implementare `04_backtest_LTD.py` con logica completa
-- [ ] Generare report metriche con `05_stats_report.py`
-- [ ] Valutare risultati → decidere se procedere al paper trading
+- [x] Completare `01_fetch_match_data.py` — ✅ eseguito, 45 CSV scaricati
+- [x] Completare `02_fetch_goal_minutes.py` — ✅ eseguito, 5 file goals 2023
+- [x] Completare `03_merge_dataset.py` — ✅ eseguito, `ltd_dataset.csv` generato
+- [x] Implementare `04_backtest_LTD.py` — ✅ eseguito, 4.037 trade simulati
+- [x] Generare report metriche con `05_stats_report.py` — ✅ win rate 85%, Sortino 201
+- [x] Costruire bot paper trading (`screener.py`, `strategy_LTD.py`, `main.py`) — ✅ completato
+- [ ] **Sblocco App Key** via supporto Betfair Italy (chat live)
+- [ ] Test screener su mercati reali Betfair
+- [ ] Avvio paper trading 4 settimane: `python bot/main.py`
 
 ---
 
