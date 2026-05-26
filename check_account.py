@@ -18,7 +18,7 @@ trading.login_interactive()
 session_token = trading.session_token
 print("Login OK\n")
 
-ACCOUNT_API = "https://api.betfair.it/exchange/account/rest/v1.0/"
+ACCOUNT_API = "https://api.betfair.com/exchange/account/rest/v1.0/"
 headers = {
     "X-Authentication": session_token,
     "X-Application":    "",
