@@ -107,20 +107,21 @@ betfair-football/
 ## Fase attuale: PAPER TRADING SETUP (aggiornato 26/05/2026)
 
 ### Completato
+- **[App Key sbloccata + screener validato]** il 26/05/2026: App Key creata con nome univoco `LTDBot_mnera_2026` (il nome "BetfairBot" non era globalmente unico). Delayed key attiva, Live key pronta — valori memorizzati in `.env` (`BETFAIR_APP_KEY` e `BETFAIR_APP_KEY_LIVE`, non committati). `.env` aggiornato. Screener testato su mercati reali: login OK, zero errori API. DNS issue intermittente risolto con `ipconfig /flushdns`.
 - **[Debug endpoint API + ticket Developer Support]** il 26/05/2026: confermato che API Exchange betfair.it è disponibile per uso personale. Identificato e corretto bug endpoint: `api.betfair.it` → `api.betfair.com` in `check_account.py` e `create_app_key.py`. Confermato che creazione self-service App Key è bloccata lato server. Aperto ticket al Betfair Developer Support per provisioning manuale. Creato venv Python con dipendenze.
 - **[Bot LTD costruito]** il 15/05/2026: scritti `bot/screener.py`, `bot/strategy_LTD.py`, `bot/main.py` con logica completa (green-up automatico + stop loss al 70'). Login interattivo su betfair.it funzionante con `locale="italy"`.
 - **[Backtest LTD completato]** in sessione precedente: 4.037 trade simulati su 5 campionati 2015-2024. Win rate 85%, expectancy +1.96€/trade, Sortino 201, max drawdown 2.1%. Verdetto: PROCEDI AL PAPER TRADING.
 - **[Pipeline backtest completata]**: tutti e 5 gli script (`01_fetch` → `05_stats_report`) eseguiti e funzionanti. Report e equity curve disponibili in `backtest/results/`.
 
 ### Blocco attuale
-- **App Key non ottenibile in self-service** su account betfair.it — `APP_KEY_CREATION_FAILED` confermato, `getDeveloperAppKeys` restituisce lista vuota. **Ticket aperto** al Betfair Developer Support (support.developer.betfair.com) per provisioning manuale. In attesa di risposta (1-2 gg lavorativi).
-- Login interattivo funzionante come workaround (nessun certificato SSL richiesto per ora).
-- **Nota endpoint**: chiamate API (betting + account) → `api.betfair.com`. Login → `identitysso.betfair.it`. Il bot usa `betfairlightweight` con `locale="italy"` che gestisce tutto automaticamente.
+- **Stagioni club finite** (maggio 2026) — nessun match Premier/Serie A/Liga/Bundesliga/Ligue 1 fino ad agosto. Mondiali 2026 non adatti a LTD (campo neutro, meno gol, no backtest calibrato).
+- **Live App Key** (`BETFAIR_APP_KEY_LIVE` in `.env`) ancora inattiva — da attivare quando pronti per il live trading.
 
 ### Prossimo step
-1. Attendere risposta ticket Developer Support per App Key
-2. Testare screener con mercati reali (`python test_screener.py`)
-3. Avviare paper trading con `python bot/main.py`
+1. Backtest scalping O/U 2.5 (seconda strategia — dati già disponibili)
+2. Setup VPS Hetzner CX22 per deploy bot
+3. Attivare Live App Key prima dell'inizio nuova stagione (agosto 2026)
+4. Avvio paper trading con `python bot/main.py` alla prima giornata
 
 Lo stato corrente prima del bot era la costruzione del backtest storico per validare la strategia LTD
 prima di qualsiasi live trading.

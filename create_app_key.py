@@ -33,7 +33,7 @@ print("Creazione App Key 'BetfairBot'...")
 resp = requests.post(
     ACCOUNT_API + "createDeveloperAppKeys/",
     headers=headers,
-    json={"appName": "BetfairBot"},
+    json={"appName": "LTDBot_mnera_2026"},
     timeout=10,
 )
 print(f"Status: {resp.status_code}")
