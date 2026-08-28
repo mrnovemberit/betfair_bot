@@ -9,7 +9,7 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
-from bot.screener import get_eligible_markets
+from bot.screener import get_eligible_markets_ltd
 
 trading = betfairlightweight.APIClient(
     username=os.getenv("BETFAIR_USERNAME"),
@@ -21,7 +21,7 @@ trading.login_interactive()
 print("Login OK\n")
 
 print("Ricerca partite eleggibili nelle prossime 6 ore...")
-eligible = get_eligible_markets(trading, hours_ahead=6)
+eligible = get_eligible_markets_ltd(trading, hours_ahead=6)
 
 if eligible:
     print(f"\n{len(eligible)} partita/e eleggibile/i:")
@@ -30,7 +30,7 @@ if eligible:
 else:
     print("Nessuna partita eleggibile trovata (normale se non ci sono partite in questo momento).")
     print("\nProvo a cercare nelle prossime 48h per verifica...")
-    eligible48 = get_eligible_markets(trading, hours_ahead=48)
+    eligible48 = get_eligible_markets_ltd(trading, hours_ahead=48)
     if eligible48:
         print(f"{len(eligible48)} partita/e nelle prossime 48h:")
         for m in eligible48:

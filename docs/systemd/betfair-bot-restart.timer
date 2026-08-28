@@ -1,0 +1,10 @@
+[Unit]
+Description=betfair-bot — timer riavvio giornaliero (08:00, nessuna partita in corso)
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Europe/Rome
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

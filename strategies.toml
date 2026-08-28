@@ -1,0 +1,24 @@
+# mode per strategia: "off" | "paper" | "live"
+#   off   -> non istanziata, screener non chiamato
+#   paper -> aggiunta a Flumine con paper_trade=True (nessun ordine reale)
+#   live  -> ordini reali. Richiede ANCHE --live/LIVE=true, + CONFIRM_LIVE=yes
+#            se il processo gira senza terminale. Senza, ridotta a paper.
+#
+# Nuova strategia: 1) scrivere bot/strategy_X.py + screener.py::get_eligible_markets_X
+#                   2) aggiungerla a STRATEGY_REGISTRY in bot/main.py
+#                   3) sezione qui sotto. Nessun altro file da toccare.
+
+[ltd]
+mode = "paper"
+bankroll = 1000
+hours_ahead = 20   # ampio apposta: un solo screening/giorno (il bot gira 24/7 e viene
+                    # riavviato una volta al giorno alle 08:00, vedi docs/systemd/) deve
+                    # coprire l'intera giornata di partite, non solo le prossime 6h.
+                    # 20h (non 24h) con riavvio alle 08:00 -> finestra 08:00-04:00 notte,
+                    # margine di sicurezza di 4h prima del riavvio successivo: nessuna
+                    # sovrapposizione/rischio di taglio anche con un piccolo ritardo del
+                    # riavvio, e nessuna partita delle 5 leghe target inizia mai dopo le
+                    # ~21:00 (quindi finisce ben prima delle 4 di notte)
+
+# [scalping_ou25]   # non ancora implementata (bot/strategy_scalping.py non esiste)
+# mode = "off"

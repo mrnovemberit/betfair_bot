@@ -1,0 +1,9 @@
+[Unit]
+Description=betfair-bot — riavvio giornaliero per nuovo screening
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/betfair/deploy
+ExecStart=/usr/bin/docker compose restart bot

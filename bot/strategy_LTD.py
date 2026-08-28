@@ -5,7 +5,7 @@ Flusso per ogni mercato eleggibile:
   1. Al kick-off → LAY sul pareggio (liability = 2% bankroll)
   2. Gol segnato  → green-up: BACK pareggio alla quota corrente
   3. 0-0 al 70'   → stop loss: BACK pareggio alla quota corrente (perdita parziale)
-  4. Ogni trade loggato in logs/trades.csv
+  4. Ogni trade loggato in logs/trades_ltd.csv
 """
 
 import csv
@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
-TRADES_CSV = LOGS_DIR / "trades.csv"
 
 COMMISSION       = 0.05   # 5% Betfair sui profitti netti
 LIABILITY_PCT    = 0.02   # 2% del bankroll per trade
@@ -36,19 +35,6 @@ _CSV_HEADER = [
 ]
 
 
-def _ensure_csv_header():
-    if not TRADES_CSV.exists():
-        with open(TRADES_CSV, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(_CSV_HEADER)
-
-
-def _log_trade(row: dict):
-    _ensure_csv_header()
-    with open(TRADES_CSV, "a", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow([row.get(k, "") for k in _CSV_HEADER])
-
-
 class LayTheDrawStrategy(BaseStrategy):
     """
     Strategia LTD per Flumine.
@@ -58,13 +44,29 @@ class LayTheDrawStrategy(BaseStrategy):
         paper_trade (bool): se True nessun ordine reale viene inviato
     """
 
+    LOG_NAME = "ltd"   # -> logs/trades_ltd.csv, distinto da eventuali altre strategie
+
     def __init__(self, *args, bankroll: float = BANKROLL, paper_trade: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.bankroll    = bankroll
         self.paper_trade = paper_trade
+        self.trades_csv  = LOGS_DIR / f"trades_{self.LOG_NAME}.csv"
 
         # Stato interno per mercato: market_id → dict
         self._state: dict[str, dict] = {}
+
+    # ── Log trade (namespacizzato per strategia) ───────────────────────────────
+
+    def _ensure_csv_header(self) -> None:
+        if not self.trades_csv.exists():
+            with open(self.trades_csv, "w", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow(_CSV_HEADER)
+
+    def _log_trade(self, row: dict) -> None:
+        self._ensure_csv_header()
+        with open(self.trades_csv, "a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow([row.get(k, "") for k in _CSV_HEADER])
 
     # ── Flumine callbacks ────────────────────────────────────────────────────
 
@@ -73,7 +75,7 @@ class LayTheDrawStrategy(BaseStrategy):
             f"LayTheDrawStrategy avviata | bankroll={self.bankroll}€ "
             f"| paper_trade={self.paper_trade}"
         )
-        _ensure_csv_header()
+        self._ensure_csv_header()
 
     def check_market_book(self, market: Market, market_book: MarketBook) -> bool:
         # Processa solo mercati in-play o a kickoff imminente
@@ -87,7 +89,7 @@ class LayTheDrawStrategy(BaseStrategy):
             "lay_order":  None,
             "entry_odds": None,
             "event_name": market.market_catalogue.event.name if market.market_catalogue else mid,
-            "draw_id":    self._get_draw_runner_id(market_book),
+            "draw_id":    self._get_draw_runner_id(market),
             "closed":     False,
         })
 
@@ -199,7 +201,7 @@ class LayTheDrawStrategy(BaseStrategy):
         else:
             logger.info(f"[{state['event_name']}] [PAPER] BACK simulato @ {exit_odds}")
 
-        _log_trade({
+        self._log_trade({
             "timestamp":       datetime.now(timezone.utc).isoformat(),
             "market_id":       market_book.market_id,
             "event_name":      state["event_name"],
@@ -216,9 +218,28 @@ class LayTheDrawStrategy(BaseStrategy):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _get_draw_runner_id(market_book: MarketBook) -> int | None:
-        runners = sorted(market_book.runners, key=lambda r: r.sort_priority)
-        return runners[1].selection_id if len(runners) >= 2 else None
+    def _get_draw_runner_id(market: Market) -> int | None:
+        """
+        Identifica il selection_id del pareggio per NOME ('The Draw'), mai per
+        posizione. RunnerBook (i dati di market_book) non include runner_name —
+        serve market.market_catalogue.runners, già in cache in Flumine.
+
+        Bug corretto il 28/08/2026: la versione precedente usava
+        sorted(market_book.runners)[1], assumendo sort_priority
+        [Casa, Pareggio, Trasferta]. Su Betfair per il calcio è invece
+        [Casa, Trasferta, Pareggio] — con la posizione, il bot avrebbe fatto
+        LAY/BACK sulla squadra ospite invece che sul pareggio. Verificato su
+        dati reali (Milan-Venezia: sort_priority 1=Milan, 2=Venezia,
+        3='The Draw'). Se la catalogue non è ancora disponibile, ritorna None
+        (fail-safe: nessuna azione finché non si può identificare con certezza,
+        invece di operare sulla selezione sbagliata).
+        """
+        if market.market_catalogue is None:
+            return None
+        for r in market.market_catalogue.runners:
+            if r.runner_name == "The Draw":
+                return r.selection_id
+        return None
 
     @staticmethod
     def _get_runner(market_book: MarketBook, selection_id: int):
@@ -228,14 +249,28 @@ class LayTheDrawStrategy(BaseStrategy):
         return None
 
     @staticmethod
+    def _price(price_size) -> float | None:
+        """
+        Estrae 'price' da una entry di available_to_back/lay. flumine monkey-patcha
+        RunnerBookEX (flumine.patching.EX) per ottimizzazione: essendo sempre
+        importato in questo processo, available_to_back/lay sono liste di dict
+        {'price', 'size'}, non oggetti PriceSize con attributo .price.
+        """
+        if price_size is None:
+            return None
+        if isinstance(price_size, dict):
+            return price_size.get("price")
+        return getattr(price_size, "price", None)
+
+    @staticmethod
     def _best_lay_price(runner) -> float | None:
         avail = runner.ex.available_to_lay if runner.ex else []
-        return avail[0].price if avail else None
+        return LayTheDrawStrategy._price(avail[0]) if avail else None
 
     @staticmethod
     def _best_back_price(runner) -> float | None:
         avail = runner.ex.available_to_back if runner.ex else []
-        return avail[0].price if avail else None
+        return LayTheDrawStrategy._price(avail[0]) if avail else None
 
     @staticmethod
     def _get_score(market_book: MarketBook) -> tuple[int, int]:

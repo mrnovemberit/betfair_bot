@@ -1,0 +1,9 @@
+# Dipendenze di RUNTIME per il container (non il set completo di sviluppo/backtest
+# in requirements.txt alla root — qui niente pandas: serve solo a backtest/*.py,
+# mai eseguito dal bot in produzione). Pinning esatto, non >=: stessa versione
+# testata in locale, per evitare che il container scarichi qualcosa di diverso il
+# giorno del deploy.
+betfairlightweight==2.23.2
+flumine==3.1.0
+python-dotenv==1.2.2
+requests==2.32.5

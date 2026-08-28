@@ -1,0 +1,35 @@
+# Progetto Docker indipendente: rete propria, nessuna comunicazione con gli altri
+# stack sullo stesso host (Frigate/videosorveglianza, n8n, Trading_Server/IB).
+name: betfair
+
+networks:
+  betfair:
+    driver: bridge
+
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: betfair-bot:latest
+    container_name: betfair-bot
+    # Processo long-running (Flumine framework.run() blocca per ore monitorando le
+    # partite) — non un job breve, quindi restart: unless-stopped come un demone
+    # normale, non profiles:["oneshot"].
+    restart: unless-stopped
+    # UID/GID dell'utente host: senza, i file scritti in logs/ sarebbero di root.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      TZ: ${TZ:-Europe/Rome}
+      LIVE: ${LIVE:-false}
+      CONFIRM_LIVE: ${CONFIRM_LIVE:-}
+    volumes:
+      # Codice + strategies.toml + .env + certs/ arrivano tutti da qui: un `git pull`
+      # sul server aggiorna il bot senza rebuild (tranne se cambia requirements-bot.txt).
+      - ../:/app
+    working_dir: /app
+    # RAM del server condivisa e stretta (~1GiB libero con Frigate/n8n/ib-gateway
+    # gia' in esecuzione) — margine ampio per un processo Python leggero, non a piena capacita'.
+    mem_limit: ${BOT_MEM_LIMIT:-300m}
+    networks:
+      - betfair
