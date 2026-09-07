@@ -55,10 +55,18 @@ class LayTheDrawStrategy(BaseStrategy):
 
     LOG_NAME = "ltd"   # -> logs/trades_ltd.csv, distinto da eventuali altre strategie
 
-    def __init__(self, *args, bankroll: float = BANKROLL, paper_trade: bool = True, **kwargs):
+    def __init__(
+        self,
+        *args,
+        bankroll: float = BANKROLL,
+        paper_trade: bool = True,
+        skip_criteria_check: bool = False,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
-        self.bankroll    = bankroll
-        self.paper_trade = paper_trade
+        self.bankroll            = bankroll
+        self.paper_trade         = paper_trade
+        self.skip_criteria_check = skip_criteria_check   # solo per test manuale entrata/uscita, vedi main.py --test-entry
         self.trades_csv  = LOGS_DIR / f"trades_{self.LOG_NAME}.csv"
         self._trading    = None   # client betfairlightweight, agganciato in start()
 
@@ -108,6 +116,19 @@ class LayTheDrawStrategy(BaseStrategy):
             "_diag_last_log_ts": 0.0,
         })
 
+        # market.market_catalogue è popolato in modo asincrono da flumine (poller
+        # separato, secondi dopo la sottoscrizione allo stream) — al primissimo
+        # tick può ancora essere None, quindi _resolve_runner_ids() fallisce.
+        # Senza questo ritentativo, draw_id restava None per sempre (bloccato dal
+        # controllo sotto), ignorando il mercato per l'intera partita: bug
+        # riscontrato il 07/09/2026 durante il test manuale --test-entry, zero
+        # entrate su 3 mercati nonostante ~100 minuti di stream attivo.
+        if state["draw_id"] is None and draw_id is not None:
+            state["home_id"] = home_id
+            state["draw_id"] = draw_id
+            if market.market_catalogue is not None:
+                state["event_name"] = market.market_catalogue.event.name
+
         if state["closed"]:
             return
 
@@ -144,7 +165,7 @@ class LayTheDrawStrategy(BaseStrategy):
     # ── Entrata e uscita ─────────────────────────────────────────────────────
 
     def _enter(self, market: Market, market_book: MarketBook, state: dict) -> None:
-        if not self._recheck_ltd_criteria(market_book, state):
+        if not self.skip_criteria_check and not self._recheck_ltd_criteria(market_book, state):
             state["closed"] = True   # criteri non più validi al kick-off, non ritentare
             return
 

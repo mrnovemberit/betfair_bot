@@ -86,8 +86,8 @@ def _fetch_catalogues_and_books(
     client: betfairlightweight.APIClient,
     *,
     event_type_ids: list[str],
-    competition_ids: list[str],
-    market_countries: list[str],
+    competition_ids: Optional[list[str]],
+    market_countries: Optional[list[str]],
     market_type_codes: list[str],
     hours_ahead: int,
     min_liquidity: float,
@@ -229,3 +229,78 @@ def get_eligible_markets_ltd(
         )
 
     return eligible
+
+
+def get_eligible_markets_test(
+    client: betfairlightweight.APIClient,
+    hours_ahead: int = 6,
+    max_results: int = 3,
+) -> list[dict]:
+    """
+    Versione SENZA criteri di selezione LTD — solo per un test manuale one-off
+    di entrata/uscita automatica dal mercato (kick-off → lay pareggio → gol o
+    70' → green-up/stop loss). Nessun filtro su lega, paese, quota casa/pareggio:
+    prende le prime `max_results` partite di calcio (qualunque livello) più
+    vicine al kick-off nella finestra oraria, purché identificabile il pareggio
+    e con liquidità minima per avere prezzi disponibili.
+
+    NON USARE per il paper/live trading normale: bypassa l'edge validato nel
+    backtest (home favorita, draw 3.2-4.5, leghe top). Solo per verificare che
+    il meccanismo di entrata/uscita scatti correttamente.
+    """
+    pairs = _fetch_catalogues_and_books(
+        client,
+        event_type_ids=["1"],       # calcio, qualunque lega
+        competition_ids=None,       # nessuna restrizione di competizione
+        market_countries=None,      # nessuna restrizione di paese
+        market_type_codes=["MATCH_ODDS"],
+        hours_ahead=hours_ahead,
+        min_liquidity=50.0,         # minimo per avere prezzi lay/back reali
+        # 20 invece del default 50: senza filtro lega/paese list_market_book con
+        # EX_BEST_OFFERS su troppi marketIds insieme sbatte contro il limite
+        # Betfair TOO_MUCH_DATA (osservato con 50 mercati worldwide il 07/09/2026)
+        max_results=20,
+    )
+
+    candidates = []
+    for cat, book in pairs:
+        ids = identify_home_and_draw(cat.runners)
+        if ids is None:
+            continue
+        home_id, draw_id = ids
+
+        def best_back(runner_id: int) -> Optional[float]:
+            for r in book.runners:
+                if r.selection_id == runner_id:
+                    avail = r.ex.available_to_back if r.ex else []
+                    return _price(avail[0]) if avail else None
+            return None
+
+        home_odds = best_back(home_id)
+        draw_odds = best_back(draw_id)
+        if home_odds is None or draw_odds is None:
+            continue
+
+        matched = book.total_matched or 0.0
+        competition_name = cat.competition.name if cat.competition else "N/A"
+        candidates.append({
+            "market_id":   cat.market_id,
+            "event_name":  cat.event.name,
+            "competition": competition_name,
+            "kick_off":    cat.market_start_time,
+            "home_id":     home_id,
+            "draw_id":     draw_id,
+            "home_odds":   home_odds,
+            "draw_odds":   draw_odds,
+            "matched":     matched,
+        })
+
+    candidates.sort(key=lambda m: m["kick_off"])
+    selected = candidates[:max_results]
+    for m in selected:
+        logger.info(
+            f"  [TEST, no filtri] {m['event_name']} ({m['competition']}) | "
+            f"kick-off {m['kick_off']} | draw={m['draw_odds']} home={m['home_odds']} "
+            f"| matched={m['matched']:.0f}€"
+        )
+    return selected

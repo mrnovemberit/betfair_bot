@@ -32,7 +32,7 @@ from flumine.clients.clients import VenueType as _VenueType
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from bot.screener import get_eligible_markets_ltd
+from bot.screener import get_eligible_markets_ltd, get_eligible_markets_test
 from bot.strategy_LTD import LayTheDrawStrategy
 
 load_dotenv(ROOT / ".env")
@@ -179,9 +179,27 @@ def main():
                          help="Default hours_ahead se assente nel TOML")
     parser.add_argument("--bankroll", type=float, default=1000,
                          help="Default bankroll se assente nel TOML")
+    parser.add_argument(
+        "--test-entry", action="store_true",
+        help=(
+            "Test manuale one-off: LTD senza criteri di selezione (nessun filtro "
+            "lega/quote), sulle prime partite di calcio disponibili, solo per "
+            "verificare che entrata/uscita automatiche scattino. Sempre paper "
+            "trade, ignora mode='live' in strategies.toml."
+        ),
+    )
     args = parser.parse_args()
 
-    enabled = load_strategy_config(ROOT / "strategies.toml")
+    if args.test_entry:
+        logger.warning(
+            "=" * 60 + "\n"
+            "MODALITA' TEST-ENTRY: nessun criterio di selezione LTD, "
+            "prima partita di calcio disponibile, forzato paper trade.\n"
+            + "=" * 60
+        )
+        enabled = {"ltd": {"mode": "paper", "bankroll": args.bankroll, "hours_ahead": args.hours}}
+    else:
+        enabled = load_strategy_config(ROOT / "strategies.toml")
     if not enabled:
         logger.info("Nessuna strategia abilitata in strategies.toml. Bot terminato.")
         return
@@ -225,7 +243,8 @@ def main():
 
     added = 0
     for name, cfg in enabled.items():
-        screener_fn, strategy_cls = STRATEGY_REGISTRY[name]
+        _, strategy_cls = STRATEGY_REGISTRY[name]
+        screener_fn = get_eligible_markets_test if args.test_entry else STRATEGY_REGISTRY[name][0]
         hours_ahead = cfg.get("hours_ahead", args.hours)
 
         logger.info(f"[{name}] screener: ricerca partite nelle prossime {hours_ahead}h...")
@@ -254,6 +273,7 @@ def main():
             name=name.upper(),
             bankroll=cfg.get("bankroll", args.bankroll),
             paper_trade=(cfg["mode"] != "live"),
+            skip_criteria_check=args.test_entry,
         )
         framework.add_strategy(strategy)
         added += 1

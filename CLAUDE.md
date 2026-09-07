@@ -82,8 +82,7 @@ betfair-football/
 ├── .env                         # credenziali Betfair (NON committare)
 ├── .env.example
 ├── requirements.txt              # dipendenze dev/backtest (pandas incluso)
-├── strategies.toml               # ON/OFF/paper/live per strategia — unico file da
-│                                  # toccare per accendere/spegnere/aggiungere una strategia
+├── strategies.toml               # ON/OFF/paper/live per strategia (unico file da toccare)
 ├── .dockerignore
 │
 ├── data/
@@ -126,7 +125,7 @@ betfair-football/
 ## Fase attuale: PRIMI TEST PAPER TRADING DAL VIVO, IN LOCALE (aggiornato 07/09/2026)
 
 ### Completato
-- **[Diagnosi e fix di 4 bug bloccanti dal primo test live]** il 07/09/2026: primo run mai eseguito contro mercati Betfair reali (05–06/09, tre partite). Nessuna entrata mai scattata: causa principale, `_get_score`/`_get_minute` leggevano attributi inesistenti in betfairlightweight, quindi gol e stop loss al 70' non potevano mai scattare — sostituiti con l'endpoint reale `trading.in_play_service.get_scores()`. Trovato anche un bug in flumine 3.1.0 (`keep_alive` va in crash su sessione scaduta invece di ritentare il login) che ha lasciato il bot sessione-morta per ~6 ore la notte del 05→06/09 — patchato via monkeypatch in `bot/main.py`. Chiuso anche il gap noto "nessun ricontrollo quote prima dell'entrata". Dettagli, cause e verifiche nel diario (`docs/diario.md`).
+- **[Primo ciclo LTD completo dal vivo]** il 07/09/2026: dopo i fix mattutini (score/minuto, keep_alive, recheck quote), trovato e risolto un bug che bloccava ogni entrata (race condition su `market_catalogue` in `strategy_LTD.py`, probabile vera causa del "nessuna entrata mai osservata" nei giorni precedenti). Con la nuova modalità di test `--test-entry` confermati 2 cicli entrata→uscita completi in paper trading (P&L +1,73€ e -0,87€). Ancora da osservare lo stop loss al 70'. Dettagli nel diario.
 - **[Containerizzazione + deploy server domestico]** il 28/08/2026: bot spostato su mini-PC Linux domestico (Docker, già in produzione per altri progetti). Corretti due bug bloccanti (`market_filter`/`BetfairMarketStream`, `SimulatedClient`/paper_trade), login non-interattivo via certificato, `strategies.toml` tri-stato, log namespacizzati. Deploy vero e proprio sul server non ancora eseguito. Dettagli nel diario.
 - **[App Key sbloccata + screener validato]** il 26/05/2026: App Key `LTDBot_mnera_2026` attiva (Delayed), Live key creata ma non attiva. Screener testato su mercati reali, zero errori API.
 - **[Bot LTD costruito]** il 15/05/2026: scritti `bot/screener.py`, `bot/strategy_LTD.py`, `bot/main.py` con logica completa (green-up automatico + stop loss al 70').
@@ -136,7 +135,7 @@ betfair-football/
 - **Live App Key** (`BETFAIR_APP_KEY_LIVE` in `.env`) ancora inattiva — da attivare quando pronti per il live trading. Non blocca il paper trading (usa la Delayed key).
 
 ### Prossimo step
-1. Continuare i test paper trading dal vivo sulle prossime giornate di campionato, per validare i 4 fix di questa sessione su un'entrata reale — nessuna ancora osservata (07/09: nessun mercato eleggibile)
+1. Osservare uno stop loss al 70' (0-0 persistente, nessun gol) — non ancora capitato, i 2 trade osservati finora sono finiti entrambi in green-up precoce
 2. Verificare in locale via Docker (vedi "Verifica end-to-end" in `docs/deploy_server.md`), poi eseguire il deploy vero e proprio sul server domestico (richiede permessi docker/sudo)
 3. Avvio paper trading ≥4 settimane (in locale e/o sul server una volta deployato)
 4. Backtest scalping O/U 2.5 (seconda strategia — dati già disponibili)
@@ -148,21 +147,6 @@ betfair-football/
 - **Periodo storico**: 2015–2024 (stagioni complete)
 - **Fonte risultati + quote**: `football-data.co.uk` — file CSV per stagione/campionato
 - **Fonte minuti gol**: `football-data.org` API REST (endpoint `/competitions/{id}/matches`)
-
-### Logica backtest LTD (pseudocodice)
-```
-Per ogni partita nel dataset:
-  1. Filtra per criteri di selezione (quota casa, quota X, %0-0)
-  2. Simula LAY sul pareggio alla quota X pre-match
-  3. Se gol segnato prima del 70°:
-       → simula BACK al pareggio alla quota post-gol
-       → calcola P&L (considerare commissione Betfair 5%)
-  4. Se ancora 0-0 al 70°:
-       → simula chiusura forzata (stop loss parziale)
-  5. Se partita finisce 0-0:
-       → registra perdita piena (liability)
-  6. Aggrega: win rate, expectancy, Sharpe, Sortino, max drawdown
-```
 
 ### Metriche di validazione richieste
 - **Win rate** > 70% per procedere al paper trading

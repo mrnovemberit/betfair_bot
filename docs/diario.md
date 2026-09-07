@@ -1,6 +1,67 @@
 # Diario di bordo — Betfair Football Trading System
 
-## 07/09/2026 — Primo test paper trading dal vivo: diagnosi e fix di 4 bug bloccanti
+## 07/09/2026 (sera) — Bug bloccante entrata risolto, primo ciclo LTD completo dal vivo
+
+- **Contesto**: dopo i 4 fix della sessione mattutina (vedi voce sotto), il bot restava
+  comunque senza mai entrare a mercato. L'utente ha chiesto di testare l'entrata/uscita
+  senza vincoli di selezione, solo per verificare il meccanismo puro.
+
+- **Aggiunta modalità di test permanente `--test-entry`** (`bot/main.py`,
+  `bot/screener.py::get_eligible_markets_test`, `LayTheDrawStrategy(skip_criteria_check=...)`):
+  ignora tutti i criteri LTD (lega, quote, liquidità min 5.000€ ridotta a 50€), forza
+  sempre paper trade anche se `strategies.toml` chiedesse live. Non tocca il funzionamento
+  normale del bot, è un percorso a parte attivabile solo da CLI.
+
+- **Primo tentativo fallito per un bug nella query stessa**: `list_market_book` con
+  50 marketIds worldwide (nessun filtro lega/paese) → `APINGException TOO_MUCH_DATA`.
+  Corretto riducendo `max_results` a 20 in `get_eligible_markets_test`.
+
+- **Bug reale trovato in `strategy_LTD.py::process_market_book`**: `home_id`/`draw_id`
+  venivano risolti da `market.market_catalogue` e salvati nello stato **una sola volta**
+  (`setdefault`), al primissimo tick dello stream. `market.market_catalogue` è popolato
+  in modo asincrono da un worker separato di flumine (~10s dopo la sottoscrizione,
+  confermato nei log: "Adding: X to Betfair markets" poi "Created marketCatalogue for X"
+  ~9-10s dopo) — se il primo tick arriva prima (probabile, lo stream può emettere
+  immediatamente), `draw_id` restava `None` per sempre: il controllo
+  `if state["draw_id"] is None: return` scartava silenziosamente ogni tick successivo,
+  senza mai più ritentare, niente log neanche diagnostico. Verificato con zero righe
+  `DIAG` in ~100 minuti di stream attivo su 3 mercati. **Quasi certamente la vera causa
+  di "nessuna entrata mai osservata" anche nelle sessioni del 05-06/09** — non i bug di
+  `_get_score`/`_get_minute` risolti stamattina (quelli bloccavano l'uscita, non
+  l'entrata). Fix: ritentare la risoluzione a ogni tick finché non riesce, invece di
+  bloccarla al primo fallimento (non cachare `None`, solo il risultato valido).
+
+- **Verificato dal vivo, due volte, nella stessa sessione** (dopo un riavvio PC di
+  mezzo che ha interrotto il primo run senza perdite, il codice del fix era già salvato
+  su disco):
+  - `FC Voluntari v Argeș Pitești` (Romanian Liga I): ENTRATA LAY draw @3.05
+    (size 9.76€, liability 20€) → GOL (1,0) → USCITA green-up BACK @3.75 →
+    **P&L netto +1,73€**. Quota pareggio salita dopo il gol, come da manuale.
+  - `Asteras Tripolis v Iraklis` (Greek Super League): ENTRATA LAY draw @3.3
+    (size 8.7€, liability 20€) → GOL (0,1, gol dell'ospite) → USCITA green-up
+    BACK @3.0 → **P&L netto -0,87€**. Quota pareggio scesa invece di salire —
+    plausibile per liquidità pre-match bassissima (369€ contro il minimo 5.000€
+    richiesto in produzione) e lega fuori dai 5 campionati validati nel backtest,
+    non un problema del bot. Zero commissione applicata (si applica solo sui
+    profitti, non sulle perdite — coerente con la regola in CLAUDE.md).
+  - Terzo mercato sottoscritto (`Raslavice v MFK Vranov`, Slovak 3. Liga) non è mai
+    entrato: già 1-0 quando il mercato è tornato "OPEN" da uno stato "Sospeso"
+    (confermato anche visivamente su Betfair.it dall'utente) — comportamento
+    corretto, l'entrata richiede 0-0.
+
+- **Non ancora osservato**: lo stop loss al 70' (0-0 persistente, nessun gol) — in
+  entrambi i trade osservati il gol è arrivato molto presto (minuto riportato "0'" da
+  `get_scores()`, verosimile artefatto di latenza/qualità dati sulle leghi minori,
+  non ha comunque influito sull'esito perché l'uscita dipende solo dal cambio
+  punteggio). Prossimo checkpoint da verificare.
+
+- **Trade loggati regolarmente** in `logs/trades_ltd.csv` con timestamp, quote
+  entrata/uscita, esito, liability, P&L lordo e netto — formato verificato corretto
+  a mano (matematica del green-up: `back_size = lay_size * entry_odds / exit_odds`).
+
+---
+
+## 07/09/2026 (mattina) — Primo test paper trading dal vivo: diagnosi e fix di 4 bug bloccanti
 
 - **Primo run end-to-end contro mercati Betfair reali** (paper trading, mai accaduto prima):
   05/09 Inter-Napoli (kick-off 18:00) e Roma-Atalanta (20:45), 06/09 Arsenal-Chelsea
