@@ -10,6 +10,7 @@ Flusso per ogni mercato eleggibile:
 
 import csv
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,15 +20,23 @@ from flumine.order.order import LimitOrder, OrderStatus
 from flumine.markets.market import Market
 from betfairlightweight.resources import MarketBook
 
+from .screener import (
+    identify_home_and_draw,
+    LTD_HOME_ODDS_MAX,
+    LTD_DRAW_ODDS_MIN,
+    LTD_DRAW_ODDS_MAX,
+)
+
 logger = logging.getLogger(__name__)
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 
-COMMISSION       = 0.05   # 5% Betfair sui profitti netti
-LIABILITY_PCT    = 0.02   # 2% del bankroll per trade
-STOP_LOSS_MINUTE = 70
-BANKROLL         = 1000.0  # bankroll iniziale simulato (verrà sovrascritto da main.py)
+COMMISSION              = 0.05   # 5% Betfair sui profitti netti
+LIABILITY_PCT           = 0.02   # 2% del bankroll per trade
+STOP_LOSS_MINUTE        = 70
+BANKROLL                = 1000.0  # bankroll iniziale simulato (verrà sovrascritto da main.py)
+SCORE_POLL_INTERVAL_SEC = 15   # throttle chiamate a InPlayService (non a ogni tick dello stream)
 
 _CSV_HEADER = [
     "timestamp", "market_id", "event_name", "draw_odds_entry",
@@ -51,6 +60,7 @@ class LayTheDrawStrategy(BaseStrategy):
         self.bankroll    = bankroll
         self.paper_trade = paper_trade
         self.trades_csv  = LOGS_DIR / f"trades_{self.LOG_NAME}.csv"
+        self._trading    = None   # client betfairlightweight, agganciato in start()
 
         # Stato interno per mercato: market_id → dict
         self._state: dict[str, dict] = {}
@@ -75,6 +85,7 @@ class LayTheDrawStrategy(BaseStrategy):
             f"LayTheDrawStrategy avviata | bankroll={self.bankroll}€ "
             f"| paper_trade={self.paper_trade}"
         )
+        self._trading = flumine.clients.get_default().betting_client
         self._ensure_csv_header()
 
     def check_market_book(self, market: Market, market_book: MarketBook) -> bool:
@@ -83,14 +94,18 @@ class LayTheDrawStrategy(BaseStrategy):
 
     def process_market_book(self, market: Market, market_book: MarketBook) -> None:
         mid = market_book.market_id
+        home_id, draw_id = self._resolve_runner_ids(market)
         state = self._state.setdefault(mid, {
             "entered":    False,
             "trade":      None,
             "lay_order":  None,
             "entry_odds": None,
             "event_name": market.market_catalogue.event.name if market.market_catalogue else mid,
-            "draw_id":    self._get_draw_runner_id(market),
+            "home_id":    home_id,
+            "draw_id":    draw_id,
             "closed":     False,
+            "_diag_last_inplay": None,
+            "_diag_last_log_ts": 0.0,
         })
 
         if state["closed"]:
@@ -99,12 +114,15 @@ class LayTheDrawStrategy(BaseStrategy):
         if state["draw_id"] is None:
             return
 
-        score = self._get_score(market_book)
-        minute = self._get_minute(market_book)
-        in_play = market_book.inplay
+        self._log_diagnostics(market_book, state)
+
+        if not market_book.inplay:
+            return
+
+        score, minute = self._get_live_score_and_minute(market, state)
 
         # ── Entrata: kick-off e non ancora entrati ────────────────────────
-        if in_play and not state["entered"] and score == (0, 0):
+        if not state["entered"] and score == (0, 0):
             self._enter(market, market_book, state)
 
         # ── Gestione posizione aperta ─────────────────────────────────────
@@ -126,6 +144,10 @@ class LayTheDrawStrategy(BaseStrategy):
     # ── Entrata e uscita ─────────────────────────────────────────────────────
 
     def _enter(self, market: Market, market_book: MarketBook, state: dict) -> None:
+        if not self._recheck_ltd_criteria(market_book, state):
+            state["closed"] = True   # criteri non più validi al kick-off, non ritentare
+            return
+
         draw_runner = self._get_runner(market_book, state["draw_id"])
         if draw_runner is None:
             return
@@ -218,28 +240,60 @@ class LayTheDrawStrategy(BaseStrategy):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _get_draw_runner_id(market: Market) -> int | None:
+    def _resolve_runner_ids(market: Market) -> tuple[int | None, int | None]:
         """
-        Identifica il selection_id del pareggio per NOME ('The Draw'), mai per
-        posizione. RunnerBook (i dati di market_book) non include runner_name —
-        serve market.market_catalogue.runners, già in cache in Flumine.
-
-        Bug corretto il 28/08/2026: la versione precedente usava
-        sorted(market_book.runners)[1], assumendo sort_priority
-        [Casa, Pareggio, Trasferta]. Su Betfair per il calcio è invece
-        [Casa, Trasferta, Pareggio] — con la posizione, il bot avrebbe fatto
-        LAY/BACK sulla squadra ospite invece che sul pareggio. Verificato su
-        dati reali (Milan-Venezia: sort_priority 1=Milan, 2=Venezia,
-        3='The Draw'). Se la catalogue non è ancora disponibile, ritorna None
-        (fail-safe: nessuna azione finché non si può identificare con certezza,
-        invece di operare sulla selezione sbagliata).
+        Identifica (home_id, draw_id) riusando identify_home_and_draw() di
+        screener.py — stessa logica già validata lì (pareggio per NOME 'The
+        Draw', mai per posizione; casa per sort_priority). Se la catalogue
+        non è ancora disponibile, ritorna (None, None): fail-safe, nessuna
+        azione finché non si può identificare con certezza.
         """
         if market.market_catalogue is None:
-            return None
-        for r in market.market_catalogue.runners:
-            if r.runner_name == "The Draw":
-                return r.selection_id
-        return None
+            return None, None
+        ids = identify_home_and_draw(market.market_catalogue.runners)
+        if ids is None:
+            return None, None
+        return ids
+
+    def _recheck_ltd_criteria(self, market_book: MarketBook, state: dict) -> bool:
+        """
+        Ricontrolla i criteri di selezione LTD (home odds, draw odds) subito
+        prima dell'entrata. Lo screener li valida una sola volta, ore prima
+        del kick-off (hours_ahead fino a 20h) — se nel frattempo le quote si
+        sono mosse (notizie di formazione, infortuni) il mercato potrebbe non
+        essere più in target. Stesse soglie e stesso prezzo (best back) usati
+        dallo screener, per coerenza.
+        """
+        home_runner = (
+            self._get_runner(market_book, state["home_id"])
+            if state.get("home_id") is not None else None
+        )
+        draw_runner = self._get_runner(market_book, state["draw_id"])
+
+        home_odds = self._best_back_price(home_runner) if home_runner else None
+        draw_odds = self._best_back_price(draw_runner) if draw_runner else None
+
+        if home_odds is None or draw_odds is None:
+            logger.warning(
+                f"[{state['event_name']}] ricontrollo entrata: quote non disponibili, skip"
+            )
+            return False
+
+        if home_odds >= LTD_HOME_ODDS_MAX:
+            logger.info(
+                f"[{state['event_name']}] entrata annullata al kick-off: "
+                f"home_odds={home_odds} >= {LTD_HOME_ODDS_MAX} (era eleggibile allo screening)"
+            )
+            return False
+
+        if not (LTD_DRAW_ODDS_MIN <= draw_odds <= LTD_DRAW_ODDS_MAX):
+            logger.info(
+                f"[{state['event_name']}] entrata annullata al kick-off: "
+                f"draw_odds={draw_odds} fuori range [{LTD_DRAW_ODDS_MIN}, {LTD_DRAW_ODDS_MAX}]"
+            )
+            return False
+
+        return True
 
     @staticmethod
     def _get_runner(market_book: MarketBook, selection_id: int):
@@ -273,19 +327,79 @@ class LayTheDrawStrategy(BaseStrategy):
         return LayTheDrawStrategy._price(avail[0]) if avail else None
 
     @staticmethod
-    def _get_score(market_book: MarketBook) -> tuple[int, int]:
+    def _log_diagnostics(market_book: MarketBook, state: dict) -> None:
+        """
+        Diagnostica temporanea per capire perché l'entrata non è mai scattata
+        il 2026-09-05 (Inter-Napoli, Roma-Atalanta) né il 2026-09-06
+        (Arsenal-Chelsea) nonostante sessione sana per l'intera partita.
+        Logga ogni transizione di market_book.inplay/status e un heartbeat
+        ogni 60s finché non si è entrati — da rimuovere una volta capita
+        la causa.
+        """
+        now = time.monotonic()
+        inplay = market_book.inplay
+        if inplay != state["_diag_last_inplay"]:
+            logger.info(
+                f"[{state['event_name']}] DIAG inplay {state['_diag_last_inplay']} → {inplay} "
+                f"| status={market_book.status}"
+            )
+            state["_diag_last_inplay"] = inplay
+            state["_diag_last_log_ts"] = now
+        elif now - state["_diag_last_log_ts"] > 60:
+            logger.info(
+                f"[{state['event_name']}] DIAG heartbeat inplay={inplay} status={market_book.status}"
+            )
+            state["_diag_last_log_ts"] = now
+
+    def _get_live_score_and_minute(
+        self, market: Market, state: dict
+    ) -> tuple[tuple[int, int], int | None]:
+        """
+        Score e minuto reali via Betfair InPlayService (`trading.in_play_service.get_scores`).
+
+        Non derivabili dallo stream Exchange standard: market_book/market_definition
+        non contengono alcun dato di punteggio (verificato su betfairlightweight
+        installato — nessun attributo match_stat/regulationTime esiste). Risultato
+        cachato per market_id (SCORE_POLL_INTERVAL_SEC) per non interrogare
+        l'endpoint a ogni tick dello stream.
+        """
+        cache = state.get("_score_cache")
+        now = time.monotonic()
+        if cache and (now - cache["ts"]) < SCORE_POLL_INTERVAL_SEC:
+            return cache["score"], cache["minute"]
+
+        fallback_score  = cache["score"] if cache else (0, 0)
+        fallback_minute = cache["minute"] if cache else None
+
+        event_id = self._get_event_id(market)
+        if self._trading is None or event_id is None:
+            return fallback_score, fallback_minute
+
         try:
-            score = market_book.market_definition.match_stat
-            # Betfair espone lo score nel market_definition
-            home = score.home_score if score else 0
-            away = score.away_score if score else 0
-            return (int(home or 0), int(away or 0))
-        except Exception:
-            return (0, 0)
+            scores = self._trading.in_play_service.get_scores(event_ids=[event_id])
+        except Exception as e:
+            logger.warning(f"[{state['event_name']}] errore recupero score live: {e}")
+            return fallback_score, fallback_minute
+
+        if not scores:
+            return fallback_score, fallback_minute
+
+        result = scores[0]
+        try:
+            home = int(result.score.home.score or 0)
+            away = int(result.score.away.score or 0)
+        except (AttributeError, TypeError, ValueError):
+            home, away = fallback_score
+
+        minute = None
+        if result.time_elapsed_seconds is not None:
+            minute = int(result.time_elapsed_seconds) // 60
+
+        state["_score_cache"] = {"ts": now, "score": (home, away), "minute": minute}
+        return (home, away), minute
 
     @staticmethod
-    def _get_minute(market_book: MarketBook) -> int | None:
-        try:
-            return market_book.market_definition.regulationTime
-        except Exception:
+    def _get_event_id(market: Market) -> int | None:
+        if market.market_catalogue is None:
             return None
+        return market.market_catalogue.event.id

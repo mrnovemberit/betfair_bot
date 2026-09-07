@@ -36,7 +36,7 @@ LTD_MIN_LIQUIDITY = 5000.0   # € matched minimi sul mercato Match Odds
 LTD_HOURS_AHEAD   = 6        # default se non specificato in strategies.toml
 
 
-def _identify_home_and_draw(runners: list) -> Optional[tuple]:
+def identify_home_and_draw(runners: list) -> Optional[tuple]:
     """
     Identifica (home_id, draw_id) per un mercato MATCH_ODDS.
 
@@ -150,7 +150,7 @@ def _fetch_catalogues_and_books(
             continue
         matched = book.total_matched or 0.0
         if matched < min_liquidity:
-            logger.debug(f"  skip {cat.market_id}: liquidità {matched:.0f} < {min_liquidity}")
+            logger.info(f"  skip {cat.event.name}: liquidità {matched:.0f}€ < {min_liquidity:.0f}€")
             continue
         pairs.append((cat, book))
 
@@ -180,7 +180,7 @@ def get_eligible_markets_ltd(
 
     eligible = []
     for cat, book in pairs:
-        ids = _identify_home_and_draw(cat.runners)
+        ids = identify_home_and_draw(cat.runners)
         if ids is None:
             continue
         home_id, draw_id = ids
@@ -200,11 +200,11 @@ def get_eligible_markets_ltd(
             continue
 
         if home_odds >= LTD_HOME_ODDS_MAX:
-            logger.debug(f"  skip {cat.event.name}: home_odds={home_odds} >= {LTD_HOME_ODDS_MAX}")
+            logger.info(f"  skip {cat.event.name}: home_odds={home_odds} >= {LTD_HOME_ODDS_MAX}")
             continue
 
         if not (LTD_DRAW_ODDS_MIN <= draw_odds <= LTD_DRAW_ODDS_MAX):
-            logger.debug(
+            logger.info(
                 f"  skip {cat.event.name}: draw_odds={draw_odds} "
                 f"fuori range [{LTD_DRAW_ODDS_MIN}, {LTD_DRAW_ODDS_MAX}]"
             )

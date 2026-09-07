@@ -25,6 +25,8 @@ import betfairlightweight
 from betfairlightweight.exceptions import LoginError
 from flumine import Flumine, clients
 from flumine.streams.betfairmarketstream import BetfairMarketStream
+import flumine.worker as _flumine_worker
+from flumine.clients.clients import VenueType as _VenueType
 
 # Aggiunge la root del progetto al path così gli import funzionano da qualunque cwd
 ROOT = Path(__file__).parent.parent
@@ -54,6 +56,43 @@ STRATEGY_REGISTRY = {
     "ltd": (get_eligible_markets_ltd, LayTheDrawStrategy),
     # "scalping_ou25": (get_eligible_markets_ou25, ScalpingOU25Strategy),  # non ancora implementata
 }
+
+
+def _keep_alive_fixed(context: dict, flumine_instance) -> None:
+    """
+    Fix per bug in flumine 3.1.0 (venv/Lib/site-packages/flumine/worker.py::keep_alive).
+
+    Se BetfairClient.keep_alive() intercetta un errore (es. sessione scaduta
+    lato Betfair, KeepAliveError "NO_SESSION"), ritorna None invece di
+    rilanciare o restituire un valore gestibile. Il codice originale di
+    flumine fa `resp.status == "SUCCESS"` senza controllare prima `resp is
+    None`, quindi va in AttributeError — *prima* di arrivare al fallback
+    `client.login()` che rinnoverebbe la sessione. Risultato osservato in
+    produzione il 2026-09-05: sessione morta alle 19:31 (NO_SESSION), mai più
+    recuperata per le successive ~6 ore, bot completamente inerte senza mai
+    fermarsi né segnalare l'accaduto oltre a un log di errore ogni 2 minuti.
+
+    Questa è una copia della funzione originale con l'unica correzione:
+    `resp is not None and resp.status == ...`, così il fallback a
+    client.login() viene raggiunto quando il keep_alive fallisce.
+    """
+    for client in flumine_instance.clients:
+        if client.VENUE == _VenueType.BETFAIR:
+            if client.betting_client.session_token:
+                resp = client.keep_alive()
+                if resp is True or (resp is not None and resp.status == "SUCCESS"):
+                    continue
+        elif client.VENUE == _VenueType.BETCONNECT:
+            resp = client.keep_alive()
+            if resp:
+                continue
+        elif client.VENUE == _VenueType.BETDAQ:
+            continue
+        # keep-alive fallito, prova un login (comportamento originale flumine)
+        client.login()
+
+
+_flumine_worker.keep_alive = _keep_alive_fixed
 
 
 def build_client(use_live_key: bool) -> betfairlightweight.APIClient:
@@ -227,12 +266,10 @@ def main():
 
     logger.info(f"Flumine in esecuzione ({added} strategia/e) — Ctrl+C per fermare")
     try:
-        framework.run()
+        framework.run()   # gestisce già il logout in autonomia (anche su KeyboardInterrupt)
     except KeyboardInterrupt:
         logger.info("Bot fermato dall'utente.")
-    finally:
-        trading.logout()
-        logger.info("Logout Betfair. Fine.")
+    logger.info("Bot terminato.")
 
 
 if __name__ == "__main__":

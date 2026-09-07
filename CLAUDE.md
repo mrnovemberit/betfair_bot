@@ -123,25 +123,25 @@ betfair-football/
 
 ---
 
-## Fase attuale: DEPLOY DOCKER SUL SERVER DOMESTICO (aggiornato 28/08/2026)
+## Fase attuale: PRIMI TEST PAPER TRADING DAL VIVO, IN LOCALE (aggiornato 07/09/2026)
 
 ### Completato
-- **[Containerizzazione + deploy server domestico]** il 28/08/2026: bot spostato dal piano "VPS Hetzner" (mai eseguito) a un mini-PC Linux domestico già in produzione per altri 3 progetti Docker indipendenti (videosorveglianza, n8n, Interactive Brokers). Corretti due bug bloccanti mai emersi prima (verificati leggendo il sorgente `flumine==3.1.0` installato, non ipotizzati): `market_filter` non è più accettato direttamente da `BaseStrategy` (va incapsulato in un `BetfairMarketStream`), e `SimulatedClient` non può ricevere dati live (va usato `BetfairClient(paper_trade=True)`) — il bot non aveva **mai** completato un run end-to-end fino ad ora. Sostituito `login_interactive()` con login non-interattivo via certificato (`trading.login()`, certificati già presenti in `certs/` ma mai usati). Aggiunto `strategies.toml` (tri-stato off/paper/live per strategia, stesso concetto del sistema IB gemello) e registry strategie in `bot/main.py`. Log trade namespacizzati per strategia (`logs/trades_ltd.csv`). Creati `deploy/` (Dockerfile, compose, requirements pinnati) e `docs/deploy_server.md` (runbook). Screener gira una sola volta all'avvio (Flumine non supporta re-screening nativo) — mitigato con `hours_ahead=20` + riavvio giornaliero schedulato alle 08:00 via systemd timer (`docs/systemd/`), stesso pattern già collaudato per il Gateway IB su questo server. Deploy vero e proprio sul server non ancora eseguito (richiede un utente con permessi docker/sudo diverso da quello SSH già configurato, confinato a `/opt/trading`).
-- **[App Key sbloccata + screener validato]** il 26/05/2026: App Key creata con nome univoco `LTDBot_mnera_2026` (il nome "BetfairBot" non era globalmente unico). Delayed key attiva, Live key creata ma non ancora attiva — valori memorizzati in `.env` (`BETFAIR_APP_KEY` e `BETFAIR_APP_KEY_LIVE`, non committati). Screener testato su mercati reali: login OK, zero errori API. DNS issue intermittente risolto con `ipconfig /flushdns`.
-- **[Debug endpoint API + ticket Developer Support]** il 26/05/2026: confermato che API Exchange betfair.it è disponibile per uso personale. Identificato e corretto bug endpoint: `api.betfair.it` → `api.betfair.com` in `check_account.py` e `create_app_key.py`. Confermato che creazione self-service App Key è bloccata lato server. Aperto ticket al Betfair Developer Support per provisioning manuale. Creato venv Python con dipendenze.
+- **[Diagnosi e fix di 4 bug bloccanti dal primo test live]** il 07/09/2026: primo run mai eseguito contro mercati Betfair reali (05–06/09, tre partite). Nessuna entrata mai scattata: causa principale, `_get_score`/`_get_minute` leggevano attributi inesistenti in betfairlightweight, quindi gol e stop loss al 70' non potevano mai scattare — sostituiti con l'endpoint reale `trading.in_play_service.get_scores()`. Trovato anche un bug in flumine 3.1.0 (`keep_alive` va in crash su sessione scaduta invece di ritentare il login) che ha lasciato il bot sessione-morta per ~6 ore la notte del 05→06/09 — patchato via monkeypatch in `bot/main.py`. Chiuso anche il gap noto "nessun ricontrollo quote prima dell'entrata". Dettagli, cause e verifiche nel diario (`docs/diario.md`).
+- **[Containerizzazione + deploy server domestico]** il 28/08/2026: bot spostato su mini-PC Linux domestico (Docker, già in produzione per altri progetti). Corretti due bug bloccanti (`market_filter`/`BetfairMarketStream`, `SimulatedClient`/paper_trade), login non-interattivo via certificato, `strategies.toml` tri-stato, log namespacizzati. Deploy vero e proprio sul server non ancora eseguito. Dettagli nel diario.
+- **[App Key sbloccata + screener validato]** il 26/05/2026: App Key `LTDBot_mnera_2026` attiva (Delayed), Live key creata ma non attiva. Screener testato su mercati reali, zero errori API.
 - **[Bot LTD costruito]** il 15/05/2026: scritti `bot/screener.py`, `bot/strategy_LTD.py`, `bot/main.py` con logica completa (green-up automatico + stop loss al 70').
 - **[Backtest LTD completato]** in sessione precedente: 4.037 trade simulati su 5 campionati 2015-2024. Win rate 85%, expectancy +1.96€/trade, Sortino 201, max drawdown 2.1%. Verdetto: PROCEDI AL PAPER TRADING.
-- **[Pipeline backtest completata]**: tutti e 5 gli script (`01_fetch` → `05_stats_report`) eseguiti e funzionanti. Report e equity curve disponibili in `backtest/results/`.
 
 ### Blocco attuale
-- **Live App Key** (`BETFAIR_APP_KEY_LIVE` in `.env`) ancora inattiva — verificato via API il 28/08/2026 (`active: False`), da attivare quando pronti per il live trading. Non blocca il paper trading (usa la Delayed key).
-- Stagioni club 2026/27 ripartite (fine agosto) — non più un blocco.
+- **Live App Key** (`BETFAIR_APP_KEY_LIVE` in `.env`) ancora inattiva — da attivare quando pronti per il live trading. Non blocca il paper trading (usa la Delayed key).
 
 ### Prossimo step
-1. Verificare in locale via Docker (vedi "Verifica end-to-end" in `docs/deploy_server.md`), poi eseguire il deploy vero e proprio sul server domestico (richiede permessi docker/sudo — vedi `docs/deploy_server.md`)
-2. Avvio paper trading ≥4 settimane (in locale e/o sul server una volta deployato)
-3. Backtest scalping O/U 2.5 (seconda strategia — dati già disponibili)
-4. Attivare Live App Key quando pronti per il live trading
+1. Continuare i test paper trading dal vivo sulle prossime giornate di campionato, per validare i 4 fix di questa sessione su un'entrata reale — nessuna ancora osservata (07/09: nessun mercato eleggibile)
+2. Verificare in locale via Docker (vedi "Verifica end-to-end" in `docs/deploy_server.md`), poi eseguire il deploy vero e proprio sul server domestico (richiede permessi docker/sudo)
+3. Avvio paper trading ≥4 settimane (in locale e/o sul server una volta deployato)
+4. Backtest scalping O/U 2.5 (seconda strategia — dati già disponibili)
+5. Attivare Live App Key quando pronti per il live trading
+6. Registrare il certificato per il login non-interattivo (elimina la fragilità di `login_interactive()` — vedi diario 07/09)
 
 ### Dataset target
 - **Campionati**: Premier League, La Liga, Serie A, Bundesliga, Ligue 1
@@ -203,23 +203,6 @@ generati in `certs/` (gitignored):
 5. **Liability max 2–3% per trade** — regola rigida, non bypassare
 6. **Logga tutto** — ogni trade (simulato o live) va in `logs/trades_<strategia>.csv` (es. `trades_ltd.csv`) con timestamp, quote, esito, P&L
 7. **Commissione sempre inclusa** — calcola sempre il 5% Betfair sui profitti netti nei P&L
-
----
-
-## Prossimi step immediati
-
-- [x] Completare `01_fetch_match_data.py` — ✅ eseguito, 45 CSV scaricati
-- [x] Completare `02_fetch_goal_minutes.py` — ✅ eseguito, 5 file goals 2023
-- [x] Completare `03_merge_dataset.py` — ✅ eseguito, `ltd_dataset.csv` generato
-- [x] Implementare `04_backtest_LTD.py` — ✅ eseguito, 4.037 trade simulati
-- [x] Generare report metriche con `05_stats_report.py` — ✅ win rate 85%, Sortino 201
-- [x] Costruire bot paper trading (`screener.py`, `strategy_LTD.py`, `main.py`) — ✅ completato
-- [x] **Sblocco App Key** via supporto Betfair Italy (chat live) — ✅ 26/05/2026
-- [x] Test screener su mercati reali Betfair — ✅ 26/05/2026
-- [x] Containerizzazione Docker + fix bug bloccanti (mai girato end-to-end prima) — ✅ 28/08/2026
-- [ ] Verifica end-to-end in locale via Docker (vedi `docs/deploy_server.md`)
-- [ ] Deploy sul server domestico (richiede permessi docker/sudo sul server)
-- [ ] Avvio paper trading ≥4 settimane: `docker compose -f deploy/docker-compose.yml up -d bot`
 
 ---
 
