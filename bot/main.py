@@ -72,9 +72,20 @@ def _keep_alive_fixed(context: dict, flumine_instance) -> None:
     recuperata per le successive ~6 ore, bot completamente inerte senza mai
     fermarsi né segnalare l'accaduto oltre a un log di errore ogni 2 minuti.
 
-    Questa è una copia della funzione originale con l'unica correzione:
-    `resp is not None and resp.status == ...`, così il fallback a
-    client.login() viene raggiunto quando il keep_alive fallisce.
+    Questa è una copia della funzione originale con due correzioni:
+    1. `resp is not None and resp.status == ...`, così il fallback al login
+       viene raggiunto quando il keep_alive fallisce (fix del 07/09/2026).
+    2. Il login di retry ricade su `login_interactive()` se il login via
+       certificato fallisce con `CERT_AUTH_REQUIRED` — esattamente come già
+       fa `build_client()` all'avvio. Senza questo, il retry automatico
+       chiamava solo `client.login()` (cert-based puro, senza fallback):
+       una volta caduta la sessione *durante* l'esecuzione (non all'avvio),
+       restava rotta per sempre — ogni ciclo di keep_alive falliva di nuovo
+       con lo stesso CERT_AUTH_REQUIRED, all'infinito. Osservato il
+       09/09/2026: sessione caduta alle 15:16, mai più recuperata per i
+       successivi ~55 minuti fino al riavvio manuale del processo. Nessun
+       impatto sui trade in corso (paper_trade non chiama mai l'ordine
+       reale), ma in live avrebbe lasciato una posizione senza copertura.
     """
     for client in flumine_instance.clients:
         if client.VENUE == _VenueType.BETFAIR:
@@ -89,7 +100,18 @@ def _keep_alive_fixed(context: dict, flumine_instance) -> None:
         elif client.VENUE == _VenueType.BETDAQ:
             continue
         # keep-alive fallito, prova un login (comportamento originale flumine)
-        client.login()
+        if client.VENUE == _VenueType.BETFAIR:
+            try:
+                client.betting_client.login()
+            except LoginError as e:
+                logger.warning(
+                    f"Login cert-based fallito nel retry automatico ({e}) — "
+                    f"fallback a login_interactive() (stesso motivo del login "
+                    f"iniziale, vedi build_client())."
+                )
+                client.betting_client.login_interactive()
+        else:
+            client.login()
 
 
 _flumine_worker.keep_alive = _keep_alive_fixed

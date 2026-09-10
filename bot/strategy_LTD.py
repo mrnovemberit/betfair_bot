@@ -383,6 +383,21 @@ class LayTheDrawStrategy(BaseStrategy):
         installato — nessun attributo match_stat/regulationTime esiste). Risultato
         cachato per market_id (SCORE_POLL_INTERVAL_SEC) per non interrogare
         l'endpoint a ogni tick dello stream.
+
+        Il minuto viene letto da `result.full_time_elapsed` (hour/min), non da
+        `result.time_elapsed_seconds`: quest'ultimo è il tempo del **periodo
+        corrente** (si azzera all'intervallo — stessa famiglia di
+        `elapsed_regular_time`/`elapsed_added_time`, non cumulativo sull'intera
+        partita), mentre `full_time_elapsed` è un campo separato pensato per il
+        minuto di gioco complessivo (verificato su
+        betfairlightweight/resources/inplayserviceresources.py::Scores). Bug
+        trovato il 09/09/2026 su Rangers v St Mirren: con `time_elapsed_seconds`
+        lo stop loss al 70' non scattava mai nel secondo tempo (un gol o un 0-0
+        al minuto reale 84' veniva visto dal bot come "minuto ~39", cioè
+        84' meno la durata del primo tempo) — nessun errore, nessun log,
+        semplicemente il trigger `minute >= STOP_LOSS_MINUTE` non si verificava
+        mai. Score confermato corretto in entrambi i casi (0-0 reale = 0-0
+        letto), solo il minuto era sbagliato.
         """
         cache = state.get("_score_cache")
         now = time.monotonic()
@@ -413,8 +428,9 @@ class LayTheDrawStrategy(BaseStrategy):
             home, away = fallback_score
 
         minute = None
-        if result.time_elapsed_seconds is not None:
-            minute = int(result.time_elapsed_seconds) // 60
+        fte = result.full_time_elapsed
+        if fte is not None and fte.hour is not None and fte.min is not None:
+            minute = fte.hour * 60 + fte.min
 
         state["_score_cache"] = {"ts": now, "score": (home, away), "minute": minute}
         return (home, away), minute

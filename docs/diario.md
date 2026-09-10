@@ -1,5 +1,52 @@
 # Diario di bordo — Betfair Football Trading System
 
+## 09/09/2026 — Bug minuto stop-loss risolto, esteso il fix del login retry
+
+- **Login retry esteso** (`bot/main.py::_keep_alive_fixed`): il retry automatico dopo un
+  keep_alive fallito chiamava solo il login cert-based (`client.login()`), senza il
+  fallback a `login_interactive()` che invece esiste in `build_client()` solo per
+  l'avvio. Risultato osservato oggi: sessione caduta alle 15:16, mai più recuperata per
+  ~55 minuti (loop infinito NO_SESSION → CERT_AUTH_REQUIRED ogni ~2 min) fino al riavvio
+  manuale. Nessun impatto sui trade paper in corso (non chiamano l'ordine reale), ma in
+  live avrebbe lasciato una posizione scoperta. Fix: il retry ora prova login
+  cert-based e, se fallisce con `LoginError`, ricade su `login_interactive()`.
+
+- **Trovata la vera causa per cui lo stop loss al 70' non era mai scattato** (in nessuna
+  delle ~8 sessioni di test da giorni): `_get_live_score_and_minute` in
+  `strategy_LTD.py` leggeva `result.time_elapsed_seconds` dall'endpoint
+  `in_play_service.get_scores()` — campo che si azzera all'intervallo (tempo del
+  **periodo corrente**, confermato in
+  `betfairlightweight/resources/inplayserviceresources.py::Scores`, che espone anche
+  `full_time_elapsed` come campo separato proprio per il minuto cumulativo). Un gol o
+  un 0-0 al minuto reale 84' veniva quindi letto dal bot come minuto ~39 (84 meno la
+  durata del 1° tempo) — mai abbastanza per superare la soglia di 70'. Il punteggio
+  letto era sempre corretto, solo il minuto era sbagliato. Fix: usare
+  `full_time_elapsed.hour*60 + full_time_elapsed.min` invece di `time_elapsed_seconds`.
+
+- **Verifica dal vivo**: Rangers v St Mirren (Scottish Premiership), entrata alle
+  20:48:36 (LAY draw @7.6, size 3,03€, liability 20€). Alle 22:xx l'utente ha
+  controllato il sito Betfair.it: 0-0 confermato al minuto reale 84', quota pareggio
+  crollata a 1,41-1,48 (mercato che prezza un pareggio ormai quasi certo) — eppure nessuno
+  stop loss nel log, a conferma diretta del bug. La partita si è poi risolta da sola con
+  un gol di Rangers al minuto reale ~88-89 (score 1,0): green-up, BACK @19 (quota
+  esplosa a fine partita), P&L netto +1,73€. Il fix non era ancora in memoria sul
+  processo in corso (serve un riavvio) — non ancora rivalidato con il minuto corretto.
+
+- **Altri 5 trade osservati oggi** tra le sessioni di test (`--test-entry`, criteri LTD
+  disattivati): Njardvik v Þróttur (LAY 4.0→BACK 4.5, +0,70€), United IK Nordic v
+  Värnamo (4.2→3.95, -0,40€), Al Mokawloon v Al Ahly Cairo (4.4→2.96, -2,86€ — quota
+  pareggio crollata di oltre il 30% dopo il gol, coerente col pattern già visto il 07/09
+  quando il "favorito reale" non è la squadra di casa), Defensores de Belgrano v Los
+  Andes (3.1→3.3, +0,55€), Norwich v Birmingham (3.8→4.3, +0,79€, unica partita
+  segnalata dall'utente come in target — Championship inglese, fuori dalle 5 leghe
+  validate ma quote in range). Tutti green-up, nessuno stop loss (bug ancora attivo per
+  tutta la sessione).
+
+- **Da rivalidare al prossimo run**: con entrambi i fix di oggi attivi (login retry +
+  minuto corretto), riprovare fino a osservare un vero stop loss al 70'.
+
+---
+
 ## 07/09/2026 (sera) — Bug bloccante entrata risolto, primo ciclo LTD completo dal vivo
 
 - **Contesto**: dopo i 4 fix della sessione mattutina (vedi voce sotto), il bot restava

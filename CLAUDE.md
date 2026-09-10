@@ -122,20 +122,20 @@ betfair-football/
 
 ---
 
-## Fase attuale: PRIMI TEST PAPER TRADING DAL VIVO, IN LOCALE (aggiornato 07/09/2026)
+## Fase attuale: PRIMI TEST PAPER TRADING DAL VIVO, IN LOCALE (aggiornato 09/09/2026)
 
 ### Completato
-- **[Primo ciclo LTD completo dal vivo]** il 07/09/2026: dopo i fix mattutini (score/minuto, keep_alive, recheck quote), trovato e risolto un bug che bloccava ogni entrata (race condition su `market_catalogue` in `strategy_LTD.py`, probabile vera causa del "nessuna entrata mai osservata" nei giorni precedenti). Con la nuova modalità di test `--test-entry` confermati 2 cicli entrata→uscita completi in paper trading (P&L +1,73€ e -0,87€). Ancora da osservare lo stop loss al 70'. Dettagli nel diario.
-- **[Containerizzazione + deploy server domestico]** il 28/08/2026: bot spostato su mini-PC Linux domestico (Docker, già in produzione per altri progetti). Corretti due bug bloccanti (`market_filter`/`BetfairMarketStream`, `SimulatedClient`/paper_trade), login non-interattivo via certificato, `strategies.toml` tri-stato, log namespacizzati. Deploy vero e proprio sul server non ancora eseguito. Dettagli nel diario.
+- **[Bug minuto stop-loss risolto]** il 09/09/2026: `_get_live_score_and_minute` usava `time_elapsed_seconds` (si azzera all'intervallo) invece di `full_time_elapsed` (minuto cumulativo) — motivo per cui lo stop loss al 70' non era mai scattato in nessun test. Esteso anche il fix del 07/09 sul login: il retry automatico ora ricade su `login_interactive()` se il cert-based fallisce a metà run, non solo all'avvio. Dettagli nel diario.
+- **[Primo ciclo LTD completo dal vivo]** il 07/09/2026: trovato e risolto un bug che bloccava ogni entrata (race condition su `market_catalogue` in `strategy_LTD.py`). Con la nuova modalità di test `--test-entry` confermati cicli entrata→uscita completi in paper trading. Dettagli nel diario.
+- **[Containerizzazione + deploy server domestico]** il 28/08/2026: bot spostato su mini-PC Linux domestico (Docker, già in produzione per altri progetti). Corretti due bug bloccanti, login non-interattivo via certificato, `strategies.toml` tri-stato, log namespacizzati. Deploy vero e proprio sul server non ancora eseguito. Dettagli nel diario.
 - **[App Key sbloccata + screener validato]** il 26/05/2026: App Key `LTDBot_mnera_2026` attiva (Delayed), Live key creata ma non attiva. Screener testato su mercati reali, zero errori API.
 - **[Bot LTD costruito]** il 15/05/2026: scritti `bot/screener.py`, `bot/strategy_LTD.py`, `bot/main.py` con logica completa (green-up automatico + stop loss al 70').
-- **[Backtest LTD completato]** in sessione precedente: 4.037 trade simulati su 5 campionati 2015-2024. Win rate 85%, expectancy +1.96€/trade, Sortino 201, max drawdown 2.1%. Verdetto: PROCEDI AL PAPER TRADING.
 
 ### Blocco attuale
 - **Live App Key** (`BETFAIR_APP_KEY_LIVE` in `.env`) ancora inattiva — da attivare quando pronti per il live trading. Non blocca il paper trading (usa la Delayed key).
 
 ### Prossimo step
-1. Osservare uno stop loss al 70' (0-0 persistente, nessun gol) — non ancora capitato, i 2 trade osservati finora sono finiti entrambi in green-up precoce
+1. Osservare un vero stop loss al 70' con il fix del minuto attivo — non ancora rivalidato dopo la correzione
 2. Verificare in locale via Docker (vedi "Verifica end-to-end" in `docs/deploy_server.md`), poi eseguire il deploy vero e proprio sul server domestico (richiede permessi docker/sudo)
 3. Avvio paper trading ≥4 settimane (in locale e/o sul server una volta deployato)
 4. Backtest scalping O/U 2.5 (seconda strategia — dati già disponibili)
